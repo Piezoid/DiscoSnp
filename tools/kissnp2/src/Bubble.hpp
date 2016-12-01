@@ -230,11 +230,11 @@ protected:
     std::queue<std::pair<Node,std::string> > breadth_first_queue;
     
     
-    int max_recursion_depth;
-    int current_recursion_depth;
+    unsigned int max_recursion_depth;
+    unsigned int current_recursion_depth;
     
-    int max_depth;   // for unitigs/contigs extensions
-    int max_breadth; // for unitigs/contigs extensions
+    unsigned int max_depth;   // for unitigs/contigs extensions
+    unsigned int max_breadth; // for unitigs/contigs extensions
 
     /* authorised_branching =
     *   0: branching forbidden in any path

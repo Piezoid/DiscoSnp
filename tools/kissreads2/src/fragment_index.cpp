@@ -46,10 +46,10 @@ int line_num(FILE * f)
 char *  strdup_upper_case(char * in){
     // count number of upper case letters in "in"
     int count =0;
-    int i;
+    size_t i;
     for(i=0;i<strlen(in);i++) if(in[i]>='A' && in[i]<='Z') count++;
     char * temp = (char *) malloc(sizeof(char)*(count+1)); test_alloc(temp);
-    int j=0;
+    size_t j=0;
     for(i=0;i<strlen(in);i++) if(in[i]>='A' && in[i]<='Z') temp[j++]=in[i];
     temp[j]='\0';
     return temp;
@@ -59,12 +59,12 @@ char *  strdup_upper_case(char * in){
 char * strdup_first_lower(char * in){
     // count number of first lower case letters in "in"
     int count =0;
-    int i;
+    size_t i;
     for(i=0;i<strlen(in);i++)
         if(in[i]>='a' && in[i]<='z') count++;
         else break;
     char * temp = (char *) malloc(sizeof(char)*(count+1)); test_alloc(temp);
-    int j=0;
+    size_t j=0;
     for(i=0;i<strlen(in);i++)
         if(in[i]>='a' && in[i]<='z') temp[j++]=in[i];
         else break;
@@ -95,9 +95,9 @@ char * strdup_last_lower(char * in){
 
 
 void FragmentIndex::empty_coverage(){
-    int prediction_id;
+    vector<FragmentInfo*>::size_type prediction_id;
     for (prediction_id=0;prediction_id < all_predictions.size();prediction_id++){
-        for(int z=0;z<all_predictions[prediction_id]->upperCaseSequence.size(); z++)
+        for(string::size_type z=0;z<all_predictions[prediction_id]->upperCaseSequence.size(); z++)
             all_predictions[prediction_id]->local_coverage[z]=(unsigned char)0;
     } // end all fragments
 }
@@ -107,7 +107,7 @@ void FragmentIndex::empty_coverage(){
 // each fragment is stored twice: one direct, one reverse complement.
 void FragmentIndex::index_predictions (BankFasta inputBank, GlobalValues& gv){
 	kmer_type coded_seed;
-	int i,z,stop;
+	size_t i,z,stop;
     uint64_t total_seeds = 0 ;
     
         
@@ -167,7 +167,7 @@ void FragmentIndex::index_predictions (BankFasta inputBank, GlobalValues& gv){
     
     total_seeds=0;
     ///second loop over fragments  : create the index
-    for(int fragment_id=0;fragment_id<all_predictions.size();fragment_id++){
+    for(vector<FragmentInfo*>::size_type fragment_id=0;fragment_id<all_predictions.size();fragment_id++){
         
         const char * w = all_predictions[fragment_id  ]->upperCaseSequence.c_str();
 #ifdef DEBUG_INDEXING
@@ -212,7 +212,7 @@ void FragmentIndex::index_predictions (BankFasta inputBank, GlobalValues& gv){
     
     
     ///third loop over fragments : for SNPs, store the SNP positions
-    for(int fragment_id=0;fragment_id<all_predictions.size();fragment_id+=2){
+    for(vector<FragmentInfo*>::size_type fragment_id=0;fragment_id<all_predictions.size();fragment_id+=2){
         
         if ( all_predictions[fragment_id]->nbOfSnps==0 ) { // This is an indel.
             all_predictions[fragment_id]->SNP_positions = (char *) malloc (sizeof(char)); // add a dummy contrained positions
@@ -223,7 +223,7 @@ void FragmentIndex::index_predictions (BankFasta inputBank, GlobalValues& gv){
         
         const char * seq1 = all_predictions[fragment_id  ]->upperCaseSequence.c_str();
         const char * seq2 = all_predictions[fragment_id+1]->upperCaseSequence.c_str();
-        int size_seq = strlen(seq1);
+        size_t size_seq = strlen(seq1);
         assert(size_seq == strlen(seq2));
         if(size_seq != strlen(seq2)){
             cerr<<"two SNP sequences of distinct sizes. Impossible"<<endl;

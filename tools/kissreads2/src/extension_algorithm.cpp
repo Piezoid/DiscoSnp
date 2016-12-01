@@ -66,8 +66,9 @@ void feed_coherent_positions(vector<FragmentInfo*> & predictions, const int pred
     FragmentInfo* the_prediction=predictions[prediction_id];
     FragmentInfo* the_reference_prediction = predictions[2*(prediction_id/2)]; // In case of snps, only the upper path prediction contains informations such as the positions of the SNPs. This is the reference?
 	
-    if(pwi+length_read<the_prediction->upperCaseSequence.size()) stop_on_prediction=pwi+length_read;
-    else stop_on_prediction=the_prediction->upperCaseSequence.size();
+	const int prediction_size = static_cast<int>(the_prediction->upperCaseSequence.size());
+    if(pwi+length_read<prediction_size) stop_on_prediction=pwi+length_read;
+    else stop_on_prediction=prediction_size;
     
     
     __sync_fetch_and_add ( & the_prediction->number_mapped_reads[read_set_id],1);
@@ -107,8 +108,9 @@ void feed_coherent_positions(vector<FragmentInfo*> & predictions, const int pred
     //            ************************
     //                       <-----k----->
     //  00000000001111111111110000000000000000000000000000000000000000 the_prediction->local_coverage
-    if(pwi+length_read-gv.minimal_read_overlap<the_prediction->upperCaseSequence.size()) stop_on_prediction=pwi+length_read-gv.minimal_read_overlap;
-    else stop_on_prediction=the_prediction->upperCaseSequence.size();
+    const int minimal_read_overlap = static_cast<int>(gv.minimal_read_overlap);
+    if(pwi+length_read-minimal_read_overlap<prediction_size) stop_on_prediction=pwi+length_read-minimal_read_overlap;
+    else stop_on_prediction=prediction_size;
 #endif
     
     for(i=start_on_prediction;i<stop_on_prediction;i++) Sinc8(the_prediction->local_coverage[i]);
@@ -282,7 +284,7 @@ struct Functor
                 
                 if(get_seed_info(index.seeds_count,&coded_seed,&offset_seed,&nb_occurrences,gv)){
                     // for each occurrence of this seed on the prediction:
-                    for (int occurrence_id=offset_seed; occurrence_id<offset_seed+nb_occurrences; occurrence_id++) {
+                    for (uint64_t occurrence_id=offset_seed; occurrence_id<offset_seed+nb_occurrences; occurrence_id++) {
                         couple * value = &(index.seed_table[occurrence_id]);
                         if (mapped_prediction.count(value->a)!=0) {
                             continue; // This prediction was already mapped with this read.
@@ -416,7 +418,7 @@ void ReadMapper::set_read_coherency(GlobalValues& gv, FragmentIndex index){
     /////////////// for each prediction: check those fully coherent and store left and right reads covering them ///////
     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     
-    int prediction_id;
+    size_t prediction_id;
     for (prediction_id=0;prediction_id < index.all_predictions.size();prediction_id++){
         
         index.all_predictions[prediction_id]->set_read_coherent(read_set_id,gv);

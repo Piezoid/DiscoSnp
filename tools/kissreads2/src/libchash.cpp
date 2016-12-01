@@ -314,7 +314,7 @@ unsigned long HTcopy(char *ul)
    
 static void HTSetupKeyTrunc(void)
 {
-   int i, j;
+   size_t i, j;
 
    for ( i = 0; i < sizeof(unsigned long); i++ )
       for ( j = 0; j < sizeof(unsigned long); j++ )
@@ -377,7 +377,7 @@ typedef struct SparseIterator {
 #define SPARSE_GROUPS(cBuckets) ( (((cBuckets)-1) >> LOG_LOW_BIN_SIZE) + 1 )
 
    /* we need a small function to figure out # of items set in the bm */
-static HTOffset EntriesUpto(HTBitmapPart *bm, int i)
+static HTOffset EntriesUpto(HTBitmapPart *bm, size_t i)
 {                                       /* returns # of set bits in 0..i-1 */
    HTOffset retval = 0; 
    static HTOffset rgcBits[256] =             /* # of bits set in one char */
@@ -579,7 +579,7 @@ static SparseBucket *SparseNextBucket(SparseIterator *iter)
       return iter->binSparse[iter->posGroup].binSparse + iter->posOffset;
 
    iter->posOffset = 0;                         /* start the next group */
-   for ( iter->posGroup++;  iter->posGroup < SPARSE_GROUPS(iter->cBuckets);
+   for ( iter->posGroup++;  iter->posGroup < static_cast<long>(SPARSE_GROUPS(iter->cBuckets));
 	 iter->posGroup++ )
       if ( iter->binSparse[iter->posGroup].cOccupied > 0 )
 	 return iter->binSparse[iter->posGroup].binSparse; /* + 0 */
@@ -730,7 +730,7 @@ static DenseBucket *DenseInsert(DenseBin *bin, DenseBucket *bckInsert,
 
 static DenseBucket *DenseNextBucket(DenseIterator *iter)
 {
-   for ( iter->pos++; iter->pos < iter->cBuckets; iter->pos++ )
+   for ( iter->pos++; iter->pos < static_cast<long>(iter->cBuckets); iter->pos++ )
       if ( !DenseIsEmpty(iter->bin, iter->pos) )
 	 return iter->bin->rgBuckets + iter->pos;
    return NULL;                        /* all remaining groups were empty */

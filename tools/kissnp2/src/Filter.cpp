@@ -37,10 +37,10 @@ bool filterLowComplexityPath(const std::string& seq){
     int DUSTSCORE[64]; // all tri-nucleotides
     for (int i=0; i<64; i++) DUSTSCORE[i]=0;
     size_t lenseq = seq.size();
-    for (int j=2; j<lenseq; ++j) ++DUSTSCORE[NT2int(seq[j-2])*16 + NT2int(seq[j-1])*4 + NT2int(seq[j])];
-    int m,s=0;
+    for (size_t j=2; j<lenseq; ++j) ++DUSTSCORE[NT2int(seq[j-2])*16 + NT2int(seq[j-1])*4 + NT2int(seq[j])];
+    size_t m,s=0;
     
-    for (int i=0; i<64; ++i)
+    for (size_t i=0; i<64; ++i)
     {
         m = DUSTSCORE[i];
         s  += (m*(m-1))/2;
