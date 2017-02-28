@@ -211,11 +211,11 @@ void BubbleFinder::start_indel_prediction(){
         //        nb_snp_start++;
         //        cout<<"nb_snp_start "<<nb_snp_start<<endl;
         current= bubble.begin[extended_path_id]; // 0 or 1
-        const char end_insertion=graph.toString(bubble.begin[(extended_path_id+1)%2])[sizeKmer-1];
+        Nucleotide end_insertion=graph.getNT(bubble.begin[!extended_path_id], sizeKmer-1);
         
-        DEBUG((cout<<"start indel finding with  "<<end_insertion<<" extending path "<<extended_path_id<<endl));
+        DEBUG((cout<<"start indel finding with  "<<ascii(end_insertion)<<" extending path "<<extended_path_id<<endl));
         string tried_extension;
-        breadth_first_queue.push(pair<Node, string>(current, string("")));
+        breadth_first_queue.emplace(current, string(""));
         while(!breadth_first_queue.empty()){
             // TODO maybe we could stop the whole breadth first search in case a bubble was found at a found_del_size and the current insert_size is <= found_del_size-2
             DEBUG((cout<<"queue size  "<<breadth_first_queue.size()<<" max_breadth "<<max_recursion_depth<<endl));
@@ -242,7 +242,7 @@ void BubbleFinder::start_indel_prediction(){
             if (insert_size > found_del_size) {
                 continue;
             }
-            if (end_insertion  == graph.toString(current)[sizeKmer-1] ){
+            if (end_insertion  == graph.getNT(current, sizeKmer-1)){
                 DEBUG((cout<<"start an INDEL detection  "<<endl));
                 bubble.polymorphism_type="INDEL";//+(insert_size);
                 
@@ -272,14 +272,15 @@ void BubbleFinder::start_indel_prediction(){
 
             /** checks if a successor with the good starting letter (the one potentially closing the indel) exists */
             bool exists;
-            Node successor = graph.successor(current,(Nucleotide)NT2int(end_insertion),exists);
+            Node successor = graph.successor(current,end_insertion,exists);
             if(exists)
-                breadth_first_queue.push(pair<Node, string>(successor,tried_extension+end_insertion));
+                breadth_first_queue.emplace(successor,tried_extension+ascii(end_insertion));
             
             /** then checks for the other possible extensions */
             for (size_t successor_id=0; successor_id<successors.size() ; successor_id++) {
-                if(graph.toString(successors[successor_id])[sizeKmer-1] != end_insertion)
-                    breadth_first_queue.push(pair<Node, string>(successors[successor_id], tried_extension+graph.toString(successors[successor_id])[sizeKmer-1]));
+                Nucleotide last_extension = graph.getNT(successors[successor_id], sizeKmer-1);
+                if(last_extension != end_insertion)
+                    breadth_first_queue.emplace(successors[successor_id], tried_extension+ascii(last_extension));
             }
         
         
