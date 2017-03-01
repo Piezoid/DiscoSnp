@@ -702,34 +702,6 @@ void BubbleFinder::finish ()
  ** RETURN  :
  ** REMARKS :
  *********************************************************************/
-bool BubbleFinder::two_possible_extensions_on_one_path (Node& node) const
-{
-    return graph.indegree(node)>1 || graph.outdegree(node)>1;
-}
-
-/*********************************************************************
- ** METHOD  :
- ** PURPOSE :
- ** INPUT   :
- ** OUTPUT  :
- ** RETURN  :
- ** REMARKS :
- *********************************************************************/
-bool BubbleFinder::two_possible_extensions (Node node1, Node node2) const
-{
-    return
-    graph.successorsEdge (node1, node2).size() >= 2  ||
-    graph.successorsEdge (graph.reverse (node1),graph.reverse (node2)).size() >= 2;
-}
-
-/*********************************************************************
- ** METHOD  :
- ** PURPOSE :
- ** INPUT   :
- ** OUTPUT  :
- ** RETURN  :
- ** REMARKS :
- *********************************************************************/
 void BubbleFinder::buildSequence ( size_t pathIdx, const char* type, Sequence& seq, string polymorphism_comments)
 {
     stringstream commentStream;
@@ -879,6 +851,17 @@ bool BubbleFinder::checkRepeatSize (string &extension1, string &extension2) cons
 }
 
 
+inline bool BubbleFinder::isAuthorizedSymmetricBranching(int& sym_branches) const {
+    // if authorised_branching==1 no symmetric branching is allowed.
+    // Otherwise it depends on the number of symmetric branching seen so far.
+    if(authorised_branching < 2 || sym_branches >= max_sym_branches ) {
+        return false;
+    } else { // The symmetric branching is tolerated beacause authorised_branching == 2 and the limit is not exceded.
+        sym_branches++;
+        return true;
+    }
+}
+
 /*********************************************************************
  ** METHOD  : BubbleFinder::checkBranching
  ** PURPOSE : Checks the branching properties of a couple of nodes. If authorised_branching==0: no branching is authorized in any of the two nodes.
@@ -888,28 +871,45 @@ bool BubbleFinder::checkRepeatSize (string &extension1, string &extension2) cons
  ** RETURN  :
  ** REMARKS :
  *********************************************************************/
-bool BubbleFinder::checkBranching (Node& node1, Node& node2,  int & sym_branches) const
+bool BubbleFinder::checkBranching (Node& node1, Node& node2, int& sym_branches) const
 {
-    // stop the extension if authorised_branching==0 (not branching in any path) and any of the two paths is branching
-    if (authorised_branching==0 && (two_possible_extensions_on_one_path(node1) || two_possible_extensions_on_one_path(node2)))
-    {
-        return false;
-    }
-    
-    const bool two_extensions = two_possible_extensions (node1, node2);
+    if(authorised_branching==0) {
+        return !graph.isBranching(node1) && !graph.isBranching(node2);
+    } else {
+        // Analyze succesors :
+        Graph::Vector< pair<Edge, Edge> > successors = graph.successorsEdge(node1, node2);
+        size_t symmetric_successors = 0, ends = 0;
+        for (size_t i=0; i < successors.size(); i++) {
+            pair<Edge,Edge> succ = successors[i];
+            if (succ.first.to == succ.second.to && succ.first.to.strand == succ.second.to.strand) {
+                ends++;
+            } else {
+                symmetric_successors++;
+            }
+        }
 
-    // stop the extension if authorised_branching==1 (not branching in both path) and both the two paths are branching
-    if (authorised_branching==1 && two_extensions)
-    {
-        return false;
-    }
+        // TODO: dispatch on every cases (ie. trigger bubble dump)
+        if(symmetric_successors > 1) return isAuthorizedSymmetricBranching(sym_branches);
 
-    // stop the extension if authorised_branching=2 and too much nrabching crossroads were traversed.
-    if (authorised_branching==2 && two_extensions){
-        if (sym_branches==max_sym_branches) {return false;} // We saw already too much symmetrically branching crossreads
-        sym_branches++;
+        // Analyze predecessors :
+        // WARNING: graph.predecessors(Node,Node) is not implemented :(
+        Graph::Vector< pair<Node, Node> > predecessors = graph.successors(graph.reverse(node1), graph.reverse(node2));
+        size_t symmetric_predecessors = 0, starts = 0;
+        for (size_t i=0; i < predecessors.size(); i++) {
+            pair<Node,Node> pred = predecessors[i];
+            if (pred.first == pred.second && pred.first.strand == pred.second.strand) {
+                starts++; // TODO: abort if not cannonical (ie. will be visited with another start node)
+            } else {
+                symmetric_predecessors++;
+            }
+        }
+
+        // TODO: dispatch on every cases (see above)
+        if(symmetric_predecessors > 1)
+            return isAuthorizedSymmetricBranching(sym_branches);
+        else
+            return true;
     }
-    return true;
 }
 
 /*********************************************************************

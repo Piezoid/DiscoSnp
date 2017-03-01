@@ -356,8 +356,7 @@ protected:
     void buildSequence (size_t pathIdx, const char* type, Sequence& seq, std::string polymorphism_comments);
 
     /** */
-    bool two_possible_extensions_on_one_path (Node& node) const;
-    bool two_possible_extensions (Node node1, Node node2) const;
+    inline bool isAuthorizedSymmetricBranching(int& sym_branches) const;
 private:
     bool recursive_indel_prediction(
                                     int extended_path_id,
