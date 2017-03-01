@@ -20,6 +20,7 @@ x *   discoSnp++: discovering polymorphism from raw unassembled NGS reads
 
 #include <Bubble.hpp>
 #include <Filter.hpp>
+#include <cassert>
 
 #include <string>
 using namespace std;
@@ -354,42 +355,28 @@ void BubbleFinder::start (Bubble& bubble, const BranchingNode& node)
  ** RETURN  : True if expended, else return false
  ** REMARKS :
  *********************************************************************/
-bool BubbleFinder::expand_heart(
+bool BubbleFinder::expand_heart( pair<Edge, Edge> nextEdge,
+                                 string local_extended_string1, string local_extended_string2,
                                  const int nb_polymorphism,
-                                 Node& nextNode1,
-                                 Node& nextNode2,
-                                 Node& node1,
-                                 Node& node2,
-                                 Node& previousNode1,
-                                 Node& previousNode2,
-                                 string local_extended_string1,
-                                 string local_extended_string2,
                                  int sym_branches,
-        int stack_size){
+                                int stack_size){
     /** We check whether the new nodes are different from previous ones. */
-    bool checkPrevious =
-    checkNodesDiff (previousNode1, node1, nextNode1) &&
-    checkNodesDiff (previousNode2, node2, nextNode2);
-    if (!checkPrevious)  { return false;}
-    
-    bool dumped_bubble=false;
-    
-    
+
     /************************************************************/
     /**                   RECURSION FINISHED                   **/
     /************************************************************/
-    if(nextNode1 == nextNode2)
+    if(nextEdge.first.to == nextEdge.second.to && nextEdge.first.to.strand == nextEdge.second.to.strand)
     {
         
         bubble.closed_bubble=true;
-        DEBUG((cout<<"last  node1.value "<<graph.toString(node1)<<" node2.value "<<graph.toString(node2)<<endl));
+        DEBUG((cout<<"last  node1.value "<<graph.toString(nextEdge.first.to)<<" node2.value "<<graph.toString(nextEdge.second.to)<<endl));
         /** We check the branching properties of the next kmers. */
         
         
         
         /** We finish the bubble with last distinct nodes. */
-        bubble.end[0] = node1;
-        bubble.end[1] = node2;
+        bubble.end[0] = nextEdge.first.to;
+        bubble.end[1] = nextEdge.second.to;
         
         checkPath();
         checkLowComplexity();
@@ -404,7 +391,9 @@ bool BubbleFinder::expand_heart(
             bubble.extended_string[1] = local_extended_string2;
             bubble.final_nb_polymorphism=nb_polymorphism;
             finish ();
-            dumped_bubble =true;
+            return true;
+        } else {
+            return false;
         }
     }
     
@@ -414,24 +403,22 @@ bool BubbleFinder::expand_heart(
     else
     {
         
-        const Nucleotide added_nucleotide1 = graph.getNT(nextNode1,sizeKmer-1);
-        const Nucleotide added_nucleotide2 = graph.getNT(nextNode2,sizeKmer-1);
-        DEBUG((cout<<"continue with nextNode1.value "<<graph.toString(nextNode1)<<" nextNode2.value "<<graph.toString(nextNode2)<<endl));
+
+        DEBUG((cout<<"continue with nextNode1.value "<<graph.toString(nextEdge.first.to)<<" nextNode2.value "<<graph.toString(nextEdge.second.to)<<endl));
         /** We call recursively the method (recursion on 'pos'). */
-        dumped_bubble = expand (nb_polymorphism,
-                                   nextNode1,
-                                   nextNode2,
-                                   node1,
-                                   node2,
-                                   local_extended_string1+ascii(added_nucleotide1),
-                                   local_extended_string2+ascii(added_nucleotide2),
+        return expand (nb_polymorphism,
+                                   nextEdge.first.to, nextEdge.second.to,
+                                   nextEdge.first.from, nextEdge.second.from,
+                                   local_extended_string1+ascii(nextEdge.first.nt),
+                                   local_extended_string2+ascii(nextEdge.second.nt),
                                    sym_branches,
                                    stack_size+1);
         
         //            /** There's only one branch to expand if we keep non branching SNPs only, therefore we can safely stop the for loop */
         //            if ( authorised_branching==0 || authorised_branching==1 )   {  break; }
+
     }
-    return dumped_bubble;
+
 }
 
 /*********************************************************************
@@ -442,6 +429,19 @@ bool BubbleFinder::expand_heart(
  ** RETURN  : True if expended, else return false
  ** REMARKS :
  *********************************************************************/
+
+
+bool BubbleFinder::expand( pair<Edge, Edge> edges,
+                           string local_extended_string1, string local_extended_string2,
+                           size_t nb_polymorphism, size_t stack_size, size_t sym_branches
+                   )
+{
+    return expand(nb_polymorphism,
+           edges.first.to, edges.second.to,
+           edges.first.from, edges.second.from,
+           local_extended_string1, local_extended_string2,
+           sym_branches, stack_size);
+}
 
 bool BubbleFinder::expand (
                            const int nb_polymorphism,
@@ -460,35 +460,44 @@ bool BubbleFinder::expand (
     DEBUG((cout<<"expand with local_extended_string1 "<<local_extended_string1<<" local_extended_string2 "<<local_extended_string2<<endl));
 
 
+    Edge previous_edge1, previous_edge2;
+    previous_edge1.from = previousNode1;
+    previous_edge1.to = node1;
+    previous_edge2.from = previousNode2;
+    previous_edge2.to = node2;
+
+
+
     /****************************************************************************/
     /**************** OPTIMIZATION : AVOID RECURSIONS ***************************/
-    Graph::Vector < pair<Node,Node> > successors;
+
+
+    Graph::Vector < pair<Edge,Edge> > successors;
     while (true){
-        if (checkBranching(node1,node2, sym_branches) == false) return false;       // no possibility to continue
-        successors = graph.successors (node1, node2); // get next two nodes
+        if (checkBranching(previous_edge1.to,previous_edge2.to, sym_branches) == false) return false;       // no possibility to continue
+        successors = graph.successorsEdge (previous_edge1.to, previous_edge2.to); // get next two nodes
         if (successors.size() != 1) break;                                          // no more iterative programming
-        if (successors[0].first == successors[0].second) {
+        if (successors[0].first.to == successors[0].second.to) {
             break;                     // ended bubble
         }
 
         bool checkPrevious =
-        checkNodesDiff (previousNode1, node1, successors[0].first) &&
-        checkNodesDiff (previousNode2, node2, successors[0].second);
+        checkNodesDiff (previous_edge1.from, previous_edge1.to, successors[0].first.to) &&
+        checkNodesDiff (previous_edge2.from, previous_edge2.to, successors[0].second.to);
         if (!checkPrevious)  { return false;}
 
-        local_extended_string1+=ascii(graph.getNT(successors[0].first,sizeKmer-1)); // extend upper sequence with new character
-        local_extended_string2+=ascii(graph.getNT(successors[0].second,sizeKmer-1));// extend lower sequence with new character
-        previousNode1 = node1;                                                      // change currents and previous nodes
-        previousNode2 = node2;                                                      // change currents and previous nodes
-        node1 = successors[0].first;                                                // change currents and previous nodes
-        node2 = successors[0].second;                                               // change currents and previous nodes
+        previous_edge1 = successors[0].first;
+        previous_edge2 = successors[0].second;
+        local_extended_string1+=ascii(previous_edge1.nt); // extend upper sequence with new character
+        local_extended_string2+=ascii(previous_edge2.nt);// extend lower sequence with new character
+
     }
 
     /**************** END OPTIMIZATION  *****************************************/
     /****************************************************************************/
 
     /** We may have to stop the extension according to the branching mode. */
-    if (checkBranching(node1,node2, sym_branches) == false)  {
+    if (checkBranching(previous_edge1.to,previous_edge1.to, sym_branches) == false)  {
         return false;
     }
     
@@ -505,14 +514,27 @@ bool BubbleFinder::expand (
     size_t i;
     for (i=0; i<successors.size(); i++)
     {
-        
-        /** extend the bubble with the couple of nodes */
-        dumped_bubble = expand_heart(nb_polymorphism,successors[i].first,successors[i].second,node1,node2,previousNode1,previousNode2,local_extended_string1,local_extended_string2,sym_branches,
-                                     stack_size);
 
+        assert(previous_edge1.to == successors[i].first.from);
+        assert(previous_edge2.to == successors[i].second.from);
+
+
+        bool checkPrevious =
+        checkNodesDiff (previous_edge1.from, previous_edge1.to, successors[i].first.to) &&
+        checkNodesDiff (previous_edge2.from, previous_edge2.to, successors[i].second.to);
+        if (!checkPrevious)  continue;
+
+
+        /** extend the bubble with the couple of nodes */
+        dumped_bubble = expand_heart(successors[i],
+                                     local_extended_string1,local_extended_string2,
+                                     nb_polymorphism,
+                                     sym_branches,
+                                     stack_size);
+        assert(!dumped_bubble || (dumped_bubble && bubble.closed_bubble));
         /** B 2 special case: if two or more symmetrical branching close a bubble, the output is redundant. **/
         /** Thus, if successors[i].first = successors[i].second and if the bubble is dumped, we stop **/
-        if (successors[i].first == successors[i].second && dumped_bubble) break;
+        if (successors[i].first.to == successors[i].second.to && dumped_bubble) break;
         
 
         // /** Stop as soon as a bubble is dumped */
@@ -521,7 +543,7 @@ bool BubbleFinder::expand (
     }
     
     DEBUG((cout<<"stop try"<<endl));
-    if(dumped_bubble) {
+    if(dumped_bubble || bubble.closed_bubble) {
         return true;
     }
     
@@ -533,17 +555,27 @@ bool BubbleFinder::expand (
     
     /** Maybe we can search for a close SNP */
     if (nb_polymorphism < max_polymorphism && bubble.type==0) {
-        DEBUG((cout<<"try with a new polymorphism ("<<nb_polymorphism<<") with node1.value "<<graph.toString(node1)<<" node2.value "<<graph.toString(node2)<<endl));
-        Graph::Vector < Node > successors1 = graph.successors (node1);
-        Graph::Vector < Node > successors2 = graph.successors (node2);
+        DEBUG((cout<<"try with a new polymorphism ("<<nb_polymorphism<<") with node1.value "<<graph.toString(previous_edge1.to)<<" node2.value "<<graph.toString(previous_edge2.to)<<endl));
+        Graph::Vector < Edge > successors1 = graph.successorsEdge (previous_edge1.to);
+        Graph::Vector < Edge > successors2 = graph.successorsEdge (previous_edge2.to);
         
         /** We loop over the successors of the two nodes found with distinct extending nucleotides. */
         for (size_t i1=0; i1<successors1.size(); i1++){
+            Edge& edge1 = successors1[i1];
+            if(!checkNodesDiff (previous_edge1.from, previous_edge1.to, edge1.to)) continue;
+            assert(edge1.from == previous_edge1.to);
             for (size_t i2=0; i2<successors2.size(); i2++){
-                    if ( graph.getNT(successors1[i1],sizeKmer-1) == graph.getNT(successors2[i2],sizeKmer-1))
-                        continue; // This has already been tested in previous loop
+                Edge& edge2 = successors2[i2];
+                if(!checkNodesDiff (previous_edge2.from, previous_edge2.to, edge2.to)) continue;
+                assert(edge2.from == previous_edge2.to);
+                if ( edge1.nt == edge2.nt) continue; // This has already been tested in previous loop
+
                 DEBUG((cout<<"TRYING"<<endl));
-                dumped_bubble |= expand_heart(nb_polymorphism+1,successors1[i1],successors2[i2],node1,node2,previousNode1,previousNode2,local_extended_string1,local_extended_string2,sym_branches ,
+
+                dumped_bubble |= expand_heart(make_pair(edge1, edge2),
+                                              local_extended_string1,local_extended_string2,
+                                              nb_polymorphism+1,
+                                              sym_branches,
                                               stack_size);
                 /******************************************************************************************* **/
                 /** Un-understood Sept 2015 (Pierre). Removed and replaced by the next "break"               **/
@@ -551,6 +583,7 @@ bool BubbleFinder::expand (
                 /** if we don't check this, in b 2 mode we may close a bubble with several distinct couple of node and thus create redondant bubbles **/
                 /** if(dumped_bubble && successors1[i1]==successors2[i2]) break; **/
                 /******************************************************************************************* **/
+                assert(!dumped_bubble || (dumped_bubble && bubble.closed_bubble));
                 if(dumped_bubble || bubble.closed_bubble) break;
             }
             if(dumped_bubble || bubble.closed_bubble) break;

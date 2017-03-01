@@ -280,19 +280,12 @@ protected:
     /** Extension of a bubble given two nextNodes to be tested.
      *
      */
-    bool expand_heart(
-                       const int nb_polymorphism,
-                       Node& nextNode1,
-                       Node& nextNode2,
-                       Node& node1,
-                       Node& node2,
-                       Node& previousNode1,
-                       Node& previousNode2,
-                       std::string local_extended_string1,
-                       std::string local_extended_string2,
-                       int sym_branches,
-            int stack_size
-                       );
+    bool expand_heart( pair<Edge, Edge> nextEdge,
+                                 string local_extended_string1,
+                                 string local_extended_string2,
+                                 const int nb_polymorphism,
+                                 int sym_branches,
+                                int stack_size);
     
     /** Extension of a bubble by testing extensions from both branches of the bubble.
      *
@@ -306,6 +299,11 @@ protected:
                  std::string local_extended_string2,
                  int sym_branches,
                  int stack_size);
+
+    bool expand( pair<Edge, Edge> nodes,
+                            string local_extended_string1, string local_extended_string2,
+                            size_t nb_polymorphism, size_t stack_size, size_t sym_branches
+                    );
     
     /** Extend the bubble to the left/right with a small assembly part of the de Bruijn graph.
      * \return true if the bubble has been extended, false otherwise. */
