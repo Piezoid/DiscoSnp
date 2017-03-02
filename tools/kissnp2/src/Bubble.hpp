@@ -136,6 +136,73 @@ struct Bubble
     Sequence seq2;
 };
 
+#include <cassert>
+
+
+inline bool eqNode(Node n1, Node n2) {
+    return (n1.kmer == n2.kmer && n1.strand == n2.strand);
+}
+
+
+/** \brief Extension state on one path of a bubble (either higher or lower)
+ * It doesn't own the extension string but remember the extension lenght at this point
+ */
+struct PathState {
+    Edge last_edge;
+    size_t local_extension_length;
+
+    /** \brief Advance the path by one nucleotide
+     * Mutate the extension_stack to match the length of the previous extension of this state, the add the nucleotide.
+     * \returns true if the extension occurs (the next node is diferent from the last two previous.)
+     */
+    inline bool extend(const Edge& next_edge, string& extension_stack) {
+        assert(eqNode(last_edge.to, next_edge.from));
+        if(!eqNode(next_edge.to, next_edge.from) && !eqNode(next_edge.to, last_edge.from)) {
+            assert(extension_stack.length() == local_extension_length);
+            assert(local_extension_length == 0 || extension_stack.back() == ascii(last_edge.nt));
+            extension_stack += ascii(next_edge.nt);
+            local_extension_length++;
+            last_edge = next_edge;
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+
+    inline void backtrack_stack(string& extension_stack) const {
+        assert(extension_stack.length() >= local_extension_length);
+        extension_stack.resize(local_extension_length);
+        assert(local_extension_length == 0 || extension_stack.back() == ascii(last_edge.nt));
+    }
+};
+
+
+
+/** \brief Extension state on two parallel paths (both side of a bubble)
+ */
+struct PathCoupleState {
+    PathState higher, lower;
+
+    inline bool extend(const pair<Edge, Edge>& next_edges, pair<string, string>& local_extensions) {
+        return higher.extend(next_edges.first,  local_extensions.first)
+            && lower.extend(next_edges.second, local_extensions.second);
+    }
+
+    inline void backtrack_stacks(pair<string, string>& local_extensions) {
+        higher.backtrack_stack(local_extensions.first);
+        lower.backtrack_stack(local_extensions.second);
+    }
+};
+
+
+struct SNP_State : public PathCoupleState
+{
+    size_t nb_polymorphism,
+           sym_branches, // number of symmetrically branchings traversed (used in b 2 mode)
+           stack_size;
+};
+
 
 /********************************************************************************/
 
@@ -216,7 +283,7 @@ protected:
     size_t sizeKmer;
 
     /** Maximal number of polymorphism per bubble. Isolated = zero **/
-    int max_polymorphism;
+    size_t max_polymorphism;
     
     /** Max deletion size **/
     int max_indel_size;
@@ -245,6 +312,10 @@ protected:
 
     /** In b 2: maximaml number of symetrically branches traversed while walking the bubble**/
     int max_sym_branches;
+
+
+    // TODO: move this in smaller class_id
+    pair<string, string> path_stack;
 
     
 
@@ -280,30 +351,13 @@ protected:
     /** Extension of a bubble given two nextNodes to be tested.
      *
      */
-    bool expand_heart( pair<Edge, Edge> nextEdge,
-                                 string local_extended_string1,
-                                 string local_extended_string2,
-                                 const int nb_polymorphism,
-                                 int sym_branches,
-                                int stack_size);
+    bool expand_heart( SNP_State state,
+                                 const pair<Edge, Edge>& nextEdge);
     
     /** Extension of a bubble by testing extensions from both branches of the bubble.
      *
      */
-    bool expand (const int nb_polymorphism,
-                 Node node1, // In case of indels, this node is the real extended one, but we keep it at depth 1
-                 Node node2, // In case of indels, this node is not extended (depth 1)
-                 Node previousNode1,
-                 Node previousNode2,
-                 std::string local_extended_string1,
-                 std::string local_extended_string2,
-                 int sym_branches,
-                 int stack_size);
-
-    bool expand( pair<Edge, Edge> nodes,
-                            string local_extended_string1, string local_extended_string2,
-                            size_t nb_polymorphism, size_t stack_size, size_t sym_branches
-                    );
+    bool expand (SNP_State& state);
     
     /** Extend the bubble to the left/right with a small assembly part of the de Bruijn graph.
      * \return true if the bubble has been extended, false otherwise. */
@@ -313,13 +367,6 @@ protected:
      * \param[in] bubble: bubble to be dumped in the output bank
      */
     void finish ();
-    
-    /** Check whether new node is similar to two previous nodes.
-     * \param[in] previous : previous node
-     * \param[in] current : current node
-     * \param[in] next : next node
-     * \return true if next node is different to current and previous nodes.*/
-    bool checkNodesDiff (Node& previous, Node& current, Node& next) const;
 
     /** Check whether the first kmer of the first path is smaller than the first kmer
      * of the revcomp(first path), this avoids repeated SNPs
@@ -331,7 +378,7 @@ protected:
      * \param[in] node 1 : bubble branch last node
      * \param[in] node 2 : bubble branch last node
      * \return true if bubble is ok */
-    bool checkBranching (Node& node1, Node& node2,  int & sym_branches) const;
+    bool checkBranching (SNP_State& state) const;
     
     /** Check that indel bubbles respect the maximal size of the position ambiguity */
     bool checkRepeatSize (string &extension1, string &extension2) const;
@@ -354,7 +401,8 @@ protected:
     void buildSequence (size_t pathIdx, const char* type, Sequence& seq, std::string polymorphism_comments);
 
     /** */
-    inline bool isAuthorizedSymmetricBranching(int& sym_branches) const;
+    inline bool isAuthorizedSymmetricBranching(size_t& sym_branches) const;
+    bool close(const SNP_State& state);
 private:
     bool recursive_indel_prediction(
                                     int extended_path_id,

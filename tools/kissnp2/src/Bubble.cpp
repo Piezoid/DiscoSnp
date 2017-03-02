@@ -31,8 +31,6 @@ const char* BubbleFinder::STR_BFS_MAX_BREADTH = "-bfs-max-breadth";
 
 
 
-
-
 /*********************************************************************
  ** METHOD  :
  ** PURPOSE :
@@ -141,23 +139,7 @@ BubbleFinder::~BubbleFinder ()
 }
 
 
-/*********************************************************************
- ** METHOD  :
- ** PURPOSE :
- ** INPUT   :
- ** OUTPUT  :
- ** RETURN  : A unique successor of a node at depth d if exist. Else return nullptr
- ** REMARKS : DEPRECATED
- *********************************************************************/
-Node get_successors (const Graph& graph, Node& node, const int depth){
-    Graph::Vector<Node> successors = graph.successors (node);
-    if(successors.size() != 1) return Node(~0); // depth 1
-    for (int d=2; d<depth; d++){
-        successors = graph.successors (successors[0]);
-        if(successors.size() != 1) return Node(~0);
-    }
-    return successors[0];
-}
+
 
 
 void BubbleFinder::start_snp_prediction(){
@@ -170,7 +152,26 @@ void BubbleFinder::start_snp_prediction(){
     bubble.extended_string[1]="";
     Node notzero = Node(~0);
     Node notzero2 = Node(~0);
-    expand (1,bubble.begin[0], bubble.begin[1], notzero, notzero2, "","", 0, 0);
+
+
+    SNP_State state;
+    state.nb_polymorphism = 1;
+    state.sym_branches = 0;
+    state.stack_size = 0;
+
+    state.higher.last_edge.to = bubble.begin[0];
+    state.higher.last_edge.from = Node(~0);
+    state.higher.last_edge.nt = graph.getNT(bubble.begin[0], sizeKmer-1);
+    state.higher.local_extension_length = 0;
+    path_stack.first = "";
+
+    state.lower.last_edge.to = bubble.begin[1];
+    state.lower.last_edge.from = Node(~0);
+    state.lower.last_edge.nt = graph.getNT(bubble.begin[1], sizeKmer-1);
+    state.lower.local_extension_length = 0;
+    path_stack.second = "";
+
+    expand (state);
 }
 
 /** Transform a nucleotide in ASCII form into an integer form as:
@@ -241,6 +242,7 @@ void BubbleFinder::start_indel_prediction(){
             /** checks if an indel was already found at a lower depth */
             // TODO: maybe impossible, to check.
             if (insert_size > found_del_size) {
+                DEBUG(cout << "Skipping insert of size " << insert_size << " due to previous found of size " << found_del_size << endl);
                 continue;
             }
             if (end_insertion  == graph.getNT(current, sizeKmer-1)){
@@ -248,20 +250,48 @@ void BubbleFinder::start_indel_prediction(){
                 bubble.polymorphism_type="INDEL";//+(insert_size);
                 
                 /** try to close the bubble from the two initial (with one extended) node */
-                Node notzero = Node(~0);
-                Node notzero2 = Node(~0);
-                if(extended_path_id==0?
-                   expand (1, current, bubble.begin[1], notzero, notzero2,tried_extension,"", 0, 0)
-                   :
-                   expand (1, bubble.begin[0], current, notzero, notzero2, "",tried_extension, 0, 0)){
-                    found_del_size=insert_size;   // an extension was found. We'll check if other extensions with same size can be found.
-                    continue;                     // we won't add stuffs in the queue, we can continue.
+
+
+                SNP_State state;
+                state.nb_polymorphism = 1;
+                state.sym_branches = 0;
+                state.stack_size = 0;
+                if(extended_path_id == 0) {
+                    state.higher.last_edge.to = current;
+                    state.higher.last_edge.from = Node(~0);
+                    state.higher.last_edge.nt = graph.getNT(current, sizeKmer-1);
+                    state.higher.local_extension_length = tried_extension.length();
+                    path_stack.first = tried_extension;
+
+                    state.lower.last_edge.to = bubble.begin[1];
+                    state.lower.last_edge.from = Node(~0);
+                    state.lower.last_edge.nt = graph.getNT(bubble.begin[1], sizeKmer-1);
+                    state.lower.local_extension_length = 0;
+                    path_stack.second = "";
+                } else {
+                    state.higher.last_edge.to = bubble.begin[1];
+                    state.higher.last_edge.from = Node(~0);
+                    state.higher.last_edge.nt = graph.getNT(bubble.begin[1], sizeKmer-1);
+                    state.higher.local_extension_length = 0;
+                    path_stack.first = "";
+
+                    state.lower.last_edge.to = current;
+                    state.lower.last_edge.from = Node(~0);
+                    state.lower.last_edge.nt = graph.getNT(current, sizeKmer-1);
+                    state.lower.local_extension_length = tried_extension.length();
+                    path_stack.second = tried_extension;
                 }
+
+                if (expand(state)) {
+                    found_del_size=insert_size;
+                    continue;
+                }
+
             }
             
             if(
-               insert_size == found_del_size || // no need to try longer extension than the one already found.
-               insert_size == max_indel_size      // no need to try longer extension than the maximal length
+               insert_size >= found_del_size || // no need to try longer extension than the one already found.
+               insert_size >= max_indel_size      // no need to try longer extension than the maximal length
                ) continue;
             Graph::Vector<Node> successors = graph.successors (current);
             
@@ -347,6 +377,36 @@ void BubbleFinder::start (Bubble& bubble, const BranchingNode& node)
 }
 
 
+bool BubbleFinder::close(const SNP_State& state) {
+    bubble.closed_bubble=true;
+    DEBUG((cout<<"last  node1.value "<<graph.toString(state.higher.last_edge.to)<<" node2.value "<<graph.toString(state.lower.last_edge.to)<<endl));
+    /** We check the branching properties of the next kmers. */
+
+
+
+    /** We finish the bubble with last distinct nodes. */
+    bubble.end[0] = state.higher.last_edge.to;
+    bubble.end[1] = state.lower.last_edge.to;
+
+    checkPath();
+    checkLowComplexity();
+    /** We check several conditions (the first path vs. its revcomp and low complexity). */
+    if (bubble.isCanonical && bubble.acceptable_complexity && checkRepeatSize(path_stack.first, path_stack.second))
+    {
+
+        /** We extend the bubble on the left and right (unitigs or contigs). */
+        extend ();
+        /** We got all the information about the bubble, we finish it. */
+        bubble.extended_string[0] = path_stack.first;
+        bubble.extended_string[1] = path_stack.second;
+        bubble.final_nb_polymorphism=state.nb_polymorphism;
+        finish ();
+        return true;
+    } else {
+        return false;
+    }
+}
+
 /*********************************************************************
  ** METHOD  : Heart of the expand method. Factorisation of code, used twice in the expand method.
  ** PURPOSE :
@@ -355,46 +415,15 @@ void BubbleFinder::start (Bubble& bubble, const BranchingNode& node)
  ** RETURN  : True if expended, else return false
  ** REMARKS :
  *********************************************************************/
-bool BubbleFinder::expand_heart( pair<Edge, Edge> nextEdge,
-                                 string local_extended_string1, string local_extended_string2,
-                                 const int nb_polymorphism,
-                                 int sym_branches,
-                                int stack_size){
+bool BubbleFinder::expand_heart( SNP_State state, // NOTE: Here the state is copied
+                                 const pair<Edge, Edge>& next_edge){
     /** We check whether the new nodes are different from previous ones. */
 
     /************************************************************/
     /**                   RECURSION FINISHED                   **/
     /************************************************************/
-    if(nextEdge.first.to == nextEdge.second.to && nextEdge.first.to.strand == nextEdge.second.to.strand)
-    {
-        
-        bubble.closed_bubble=true;
-        DEBUG((cout<<"last  node1.value "<<graph.toString(nextEdge.first.to)<<" node2.value "<<graph.toString(nextEdge.second.to)<<endl));
-        /** We check the branching properties of the next kmers. */
-        
-        
-        
-        /** We finish the bubble with last distinct nodes. */
-        bubble.end[0] = nextEdge.first.to;
-        bubble.end[1] = nextEdge.second.to;
-        
-        checkPath();
-        checkLowComplexity();
-        /** We check several conditions (the first path vs. its revcomp and low complexity). */
-        if (bubble.isCanonical && bubble.acceptable_complexity && checkRepeatSize(local_extended_string1, local_extended_string2))
-        {
-            
-            /** We extend the bubble on the left and right (unitigs or contigs). */
-            extend ();
-            /** We got all the information about the bubble, we finish it. */
-            bubble.extended_string[0] = local_extended_string1;
-            bubble.extended_string[1] = local_extended_string2;
-            bubble.final_nb_polymorphism=nb_polymorphism;
-            finish ();
-            return true;
-        } else {
-            return false;
-        }
+    if(eqNode(next_edge.first.to, next_edge.second.to))
+    { return close(state);
     }
     
     /************************************************************/
@@ -404,15 +433,10 @@ bool BubbleFinder::expand_heart( pair<Edge, Edge> nextEdge,
     {
         
 
-        DEBUG((cout<<"continue with nextNode1.value "<<graph.toString(nextEdge.first.to)<<" nextNode2.value "<<graph.toString(nextEdge.second.to)<<endl));
+        DEBUG((cout<<"continue with nextNode1.value "<<graph.toString(state.higher.last_edge.to)<<" nextNode2.value "<<graph.toString(state.lower.last_edge.to)<<endl));
         /** We call recursively the method (recursion on 'pos'). */
-        return expand (nb_polymorphism,
-                                   nextEdge.first.to, nextEdge.second.to,
-                                   nextEdge.first.from, nextEdge.second.from,
-                                   local_extended_string1+ascii(nextEdge.first.nt),
-                                   local_extended_string2+ascii(nextEdge.second.nt),
-                                   sym_branches,
-                                   stack_size+1);
+        state.stack_size++;
+        return state.extend(next_edge, path_stack) && expand(state);
         
         //            /** There's only one branch to expand if we keep non branching SNPs only, therefore we can safely stop the for loop */
         //            if ( authorised_branching==0 || authorised_branching==1 )   {  break; }
@@ -431,41 +455,16 @@ bool BubbleFinder::expand_heart( pair<Edge, Edge> nextEdge,
  *********************************************************************/
 
 
-bool BubbleFinder::expand( pair<Edge, Edge> edges,
-                           string local_extended_string1, string local_extended_string2,
-                           size_t nb_polymorphism, size_t stack_size, size_t sym_branches
-                   )
+
+
+
+
+
+bool BubbleFinder::expand (SNP_State& state) // NOTE: Here we mutate the parent state
 {
-    return expand(nb_polymorphism,
-           edges.first.to, edges.second.to,
-           edges.first.from, edges.second.from,
-           local_extended_string1, local_extended_string2,
-           sym_branches, stack_size);
-}
-
-bool BubbleFinder::expand (
-                           const int nb_polymorphism,
-                           Node node1, // Node currently tested
-                           Node node2, // Node currently tested
-                           Node previousNode1, // node before the one tested
-                           Node previousNode2, // node before the one tested
-                           string local_extended_string1,
-                           string local_extended_string2,
-                           int sym_branches, // number of symmetrically branchings traversed (used in b 2 mode)
-                           int stack_size
-                           )
-{
-    DEBUG((cout<<" *"<<stack_size<<"+"<<endl));
-    DEBUG((cout<<"expand with node1.value "<<graph.toString(node1)<<" node2.value "<<graph.toString(node2)<<endl));
-    DEBUG((cout<<"expand with local_extended_string1 "<<local_extended_string1<<" local_extended_string2 "<<local_extended_string2<<endl));
-
-
-    Edge previous_edge1, previous_edge2;
-    previous_edge1.from = previousNode1;
-    previous_edge1.to = node1;
-    previous_edge2.from = previousNode2;
-    previous_edge2.to = node2;
-
+    DEBUG((cout<<" *"<<state.stack_size<<"+"<<endl));
+    DEBUG((cout<<"expand with node1.value "<<graph.toString(state.higher.last_edge.to)<<" node2.value "<<graph.toString(state.lower.last_edge.to)<<endl));
+    DEBUG((cout<<"expand with local_extended_string1 "<<path_stack.first<<" local_extended_string2 "<<path_stack.second<<endl));
 
 
     /****************************************************************************/
@@ -474,30 +473,19 @@ bool BubbleFinder::expand (
 
     Graph::Vector < pair<Edge,Edge> > successors;
     while (true){
-        if (checkBranching(previous_edge1.to,previous_edge2.to, sym_branches) == false) return false;       // no possibility to continue
-        successors = graph.successorsEdge (previous_edge1.to, previous_edge2.to); // get next two nodes
-        if (successors.size() != 1) break;                                          // no more iterative programming
-        if (successors[0].first.to == successors[0].second.to) {
-            break;                     // ended bubble
-        }
-
-        bool checkPrevious =
-        checkNodesDiff (previous_edge1.from, previous_edge1.to, successors[0].first.to) &&
-        checkNodesDiff (previous_edge2.from, previous_edge2.to, successors[0].second.to);
-        if (!checkPrevious)  { return false;}
-
-        previous_edge1 = successors[0].first;
-        previous_edge2 = successors[0].second;
-        local_extended_string1+=ascii(previous_edge1.nt); // extend upper sequence with new character
-        local_extended_string2+=ascii(previous_edge2.nt);// extend lower sequence with new character
-
+        if (checkBranching(state) == false) return false;       // no possibility to continue
+        successors = graph.successorsEdge (state.higher.last_edge.to, state.lower.last_edge.to); // get next two nodes
+        if (successors.size() != 1 || eqNode(successors[0].first.to, successors[0].second.to)) break;                                          // no more iterative programming
+        assert(eqNode(successors[0].first.from, state.higher.last_edge.to));
+        assert(eqNode(successors[0].second.from, state.lower.last_edge.to));
+        if(!state.extend(successors[0], path_stack)) { return false ; }
     }
 
     /**************** END OPTIMIZATION  *****************************************/
     /****************************************************************************/
 
     /** We may have to stop the extension according to the branching mode. */
-    if (checkBranching(previous_edge1.to,previous_edge1.to, sym_branches) == false)  {
+    if (checkBranching(state) == false)  {
         return false;
     }
     
@@ -515,22 +503,16 @@ bool BubbleFinder::expand (
     for (i=0; i<successors.size(); i++)
     {
 
-        assert(previous_edge1.to == successors[i].first.from);
-        assert(previous_edge2.to == successors[i].second.from);
+        assert(state.higher.last_edge.to == successors[i].first.from);
+        assert(state.lower.last_edge.to == successors[i].second.from);
 
 
-        bool checkPrevious =
-        checkNodesDiff (previous_edge1.from, previous_edge1.to, successors[i].first.to) &&
-        checkNodesDiff (previous_edge2.from, previous_edge2.to, successors[i].second.to);
-        if (!checkPrevious)  continue;
+
 
 
         /** extend the bubble with the couple of nodes */
-        dumped_bubble = expand_heart(successors[i],
-                                     local_extended_string1,local_extended_string2,
-                                     nb_polymorphism,
-                                     sym_branches,
-                                     stack_size);
+        state.backtrack_stacks(path_stack);
+        dumped_bubble = expand_heart(state, successors[i]);
         assert(!dumped_bubble || (dumped_bubble && bubble.closed_bubble));
         /** B 2 special case: if two or more symmetrical branching close a bubble, the output is redundant. **/
         /** Thus, if successors[i].first = successors[i].second and if the bubble is dumped, we stop **/
@@ -554,36 +536,32 @@ bool BubbleFinder::expand (
     }
     
     /** Maybe we can search for a close SNP */
-    if (nb_polymorphism < max_polymorphism && bubble.type==0) {
-        DEBUG((cout<<"try with a new polymorphism ("<<nb_polymorphism<<") with node1.value "<<graph.toString(previous_edge1.to)<<" node2.value "<<graph.toString(previous_edge2.to)<<endl));
-        Graph::Vector < Edge > successors1 = graph.successorsEdge (previous_edge1.to);
-        Graph::Vector < Edge > successors2 = graph.successorsEdge (previous_edge2.to);
+    if (state.nb_polymorphism < max_polymorphism && bubble.type==0) {
+        DEBUG((cout<<"try with a new polymorphism ("<<state.nb_polymorphism<<") with node1.value "<<graph.toString(state.higher.last_edge.to)<<" node2.value "<<graph.toString(state.lower.last_edge.to)<<endl));
+        Graph::Vector < Edge > successors1 = graph.successorsEdge (state.higher.last_edge.to);
+        Graph::Vector < Edge > successors2 = graph.successorsEdge (state.lower.last_edge.to);
         
         /** We loop over the successors of the two nodes found with distinct extending nucleotides. */
         for (size_t i1=0; i1<successors1.size(); i1++){
             Edge& edge1 = successors1[i1];
-            if(!checkNodesDiff (previous_edge1.from, previous_edge1.to, edge1.to)) continue;
-            assert(edge1.from == previous_edge1.to);
+            assert(edge1.from == state.higher.last_edge.to);
             for (size_t i2=0; i2<successors2.size(); i2++){
                 Edge& edge2 = successors2[i2];
-                if(!checkNodesDiff (previous_edge2.from, previous_edge2.to, edge2.to)) continue;
-                assert(edge2.from == previous_edge2.to);
+                assert(edge2.from == state.lower.last_edge.to);
                 if ( edge1.nt == edge2.nt) continue; // This has already been tested in previous loop
 
                 DEBUG((cout<<"TRYING"<<endl));
 
-                dumped_bubble |= expand_heart(make_pair(edge1, edge2),
-                                              local_extended_string1,local_extended_string2,
-                                              nb_polymorphism+1,
-                                              sym_branches,
-                                              stack_size);
+                state.nb_polymorphism++;
+                state.backtrack_stacks(path_stack);
+                dumped_bubble |= expand_heart(state, make_pair(edge1, edge2));
+                assert(!dumped_bubble || (dumped_bubble && bubble.closed_bubble));
                 /******************************************************************************************* **/
                 /** Un-understood Sept 2015 (Pierre). Removed and replaced by the next "break"               **/
                 /** if the bubble is finished with THIS couple of tested successors, we stop here.**/
                 /** if we don't check this, in b 2 mode we may close a bubble with several distinct couple of node and thus create redondant bubbles **/
                 /** if(dumped_bubble && successors1[i1]==successors2[i2]) break; **/
                 /******************************************************************************************* **/
-                assert(!dumped_bubble || (dumped_bubble && bubble.closed_bubble));
                 if(dumped_bubble || bubble.closed_bubble) break;
             }
             if(dumped_bubble || bubble.closed_bubble) break;
@@ -807,18 +785,6 @@ void BubbleFinder::buildSequence ( size_t pathIdx, const char* type, Sequence& s
     *(output++) = '\0';
 }
 
-/*********************************************************************
- ** METHOD  :
- ** PURPOSE :
- ** INPUT   :
- ** OUTPUT  :
- ** RETURN  :
- ** REMARKS :
- *********************************************************************/
-bool BubbleFinder::checkNodesDiff (Node& previous, Node& current, Node& next) const
-{
-    return (next.kmer != current.kmer) && (next.kmer != previous.kmer);
-}
 
 /*********************************************************************
  ** METHOD  :
@@ -884,7 +850,7 @@ bool BubbleFinder::checkRepeatSize (string &extension1, string &extension2) cons
 }
 
 
-inline bool BubbleFinder::isAuthorizedSymmetricBranching(int& sym_branches) const {
+inline bool BubbleFinder::isAuthorizedSymmetricBranching(size_t& sym_branches) const {
     // if authorised_branching==1 no symmetric branching is allowed.
     // Otherwise it depends on the number of symmetric branching seen so far.
     if(authorised_branching < 2 || sym_branches >= max_sym_branches ) {
@@ -904,34 +870,40 @@ inline bool BubbleFinder::isAuthorizedSymmetricBranching(int& sym_branches) cons
  ** RETURN  :
  ** REMARKS :
  *********************************************************************/
-bool BubbleFinder::checkBranching (Node& node1, Node& node2, int& sym_branches) const
+bool BubbleFinder::checkBranching (SNP_State& state) const
 {
     if(authorised_branching==0) {
-        return !graph.isBranching(node1) && !graph.isBranching(node2);
+        return !graph.isBranching(state.higher.last_edge.to) && !graph.isBranching(state.lower.last_edge.to);
     } else {
         // Analyze succesors :
-        Graph::Vector< pair<Edge, Edge> > successors = graph.successorsEdge(node1, node2);
+        Graph::Vector< pair<Edge, Edge> > successors = graph.successorsEdge(state.higher.last_edge.to, state.lower.last_edge.to);
         size_t symmetric_successors = 0, ends = 0;
         for (size_t i=0; i < successors.size(); i++) {
             pair<Edge,Edge> succ = successors[i];
-            if (succ.first.to == succ.second.to && succ.first.to.strand == succ.second.to.strand) {
-                ends++;
+            if (eqNode(succ.first.to, succ.second.to)) {
+                ends++; // TODO: dump bubble
             } else {
                 symmetric_successors++;
             }
         }
 
         // TODO: dispatch on every cases (ie. trigger bubble dump)
-        if(symmetric_successors > 1) return isAuthorizedSymmetricBranching(sym_branches);
+        if(symmetric_successors > 1) return isAuthorizedSymmetricBranching(state.sym_branches);
 
         // Analyze predecessors :
         // WARNING: graph.predecessors(Node,Node) is not implemented :(
-        Graph::Vector< pair<Node, Node> > predecessors = graph.successors(graph.reverse(node1), graph.reverse(node2));
+        Graph::Vector< pair<Node, Node> > predecessors = graph.successors(graph.reverse(state.higher.last_edge.to), graph.reverse(state.lower.last_edge.to));
         size_t symmetric_predecessors = 0, starts = 0;
         for (size_t i=0; i < predecessors.size(); i++) {
             pair<Node,Node> pred = predecessors[i];
-            if (pred.first == pred.second && pred.first.strand == pred.second.strand) {
-                starts++; // TODO: abort if not cannonical (ie. will be visited with another start node)
+            if (eqNode(pred.first, pred.second)) {
+                if(state.higher.local_extension_length != 0 && state.lower.local_extension_length != 0)
+                {
+                    cout << "Found alternative begin past original begin " << graph.toString(graph.reverse(pred.first)) << " for bubble : " << endl
+                         << "\t'" << path_stack.first << "' ("<< graph.toString(state.higher.last_edge.to) <<  ")" << endl
+                         << "\t'" << path_stack.second << "' ("<< graph.toString(state.lower.last_edge.to) <<  ")" << endl;
+                }
+                starts++; // TODO: abbort if not cannonical (ie. will be visited with another start node)
             } else {
                 symmetric_predecessors++;
             }
@@ -939,7 +911,7 @@ bool BubbleFinder::checkBranching (Node& node1, Node& node2, int& sym_branches) 
 
         // TODO: dispatch on every cases (see above)
         if(symmetric_predecessors > 1)
-            return isAuthorizedSymmetricBranching(sym_branches);
+            return isAuthorizedSymmetricBranching(state.sym_branches);
         else
             return true;
     }
