@@ -175,6 +175,14 @@ struct PathState {
         extension_stack.resize(local_extension_length);
         assert(local_extension_length == 0 || extension_stack.back() == ascii(last_edge.nt));
     }
+
+    inline bool avanceTillSingleOutBranching(const Graph& graph, Graph::Vector<Edge>& succesors, string& extension_stack){
+        while(true) {
+            succesors = graph.successorsEdge(last_edge.to);
+            if(succesors.size() != 1) return true;
+            if(!extend(succesors[0], extension_stack)) return false;
+        }
+    }
 };
 
 
@@ -193,6 +201,9 @@ struct PathCoupleState {
         higher.backtrack_stack(local_extensions.first);
         lower.backtrack_stack(local_extensions.second);
     }
+
+    template<typename Fun>
+    inline void avanceSimplePath(Fun check_functor);
 };
 
 
@@ -293,8 +304,7 @@ protected:
 
     bool accept_low; // Option set: do we accept low complexity bubbles
     
-   
-    std::queue<std::pair<Node,std::string> > breadth_first_queue;
+
     
     
     unsigned int max_recursion_depth;
@@ -357,7 +367,7 @@ protected:
     /** Extension of a bubble by testing extensions from both branches of the bubble.
      *
      */
-    bool expand (SNP_State& state);
+    inline bool expand (SNP_State& state);
     
     /** Extend the bubble to the left/right with a small assembly part of the de Bruijn graph.
      * \return true if the bubble has been extended, false otherwise. */
@@ -378,7 +388,8 @@ protected:
      * \param[in] node 1 : bubble branch last node
      * \param[in] node 2 : bubble branch last node
      * \return true if bubble is ok */
-    bool checkBranching (SNP_State& state) const;
+    inline bool checkBranching (SNP_State& state,
+        const Graph::Vector < pair<Edge,Edge> > sucessors) const;
     
     /** Check that indel bubbles respect the maximal size of the position ambiguity */
     bool checkRepeatSize (string &extension1, string &extension2) const;

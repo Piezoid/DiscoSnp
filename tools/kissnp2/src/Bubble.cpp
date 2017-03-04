@@ -184,12 +184,16 @@ void BubbleFinder::start_snp_prediction(){
 static int NT2int(char nt)  {  return (nt>>1)&3;  }
 
 
-void clear_queue_pair( std::queue<pair<Node, string> > &q )
+void clear_queue_pair( std::queue<pair<Edge, string> > &q )
 {
-    std::queue<pair<Node, string> > empty;
+    std::queue<pair<Edge, string> > empty;
     std::swap( q, empty );
 }
 
+
+// template<typename Fun>
+// inline bool simplePath(const &Graph graph, Fun&& tick, string& extension, Graph::Vector<Edge>& sucessors) {
+// }
 /*********************************************************************
  ** METHOD  :
  ** PURPOSE :
@@ -205,19 +209,39 @@ void BubbleFinder::start_indel_prediction(){
     bubble.type=1;
     // Consider a deletion in the upper path (avance on the lower) and then try the opposite
     
-    Node current;
+
     int found_del_size=max_indel_size+10; // No indel found for now (we could also use MAXINT)
+    Graph::Vector<Edge> successors;
     
+    DEBUG(cout << "Try indel from " << graph.toString(bubble.begin[0]) << " " <<  graph.toString(bubble.begin[1]) << endl);
+
+
+    const Edge begin_edges[2] = {
+        { .from= Node(~0),
+          .to = bubble.begin[0],
+          .nt = graph.getNT(bubble.begin[0], sizeKmer-1),
+        },
+        { .from= Node(~0),
+          .to = bubble.begin[1],
+          .nt = graph.getNT(bubble.begin[1], sizeKmer-1),
+        }
+    };
 
     for(int extended_path_id=0;extended_path_id<2;extended_path_id++){
+//         if(extended_path_id)
+//         cout << "Invert low/high" << endl;
         //        nb_snp_start++;
         //        cout<<"nb_snp_start "<<nb_snp_start<<endl;
-        current= bubble.begin[extended_path_id]; // 0 or 1
-        Nucleotide end_insertion=graph.getNT(bubble.begin[!extended_path_id], sizeKmer-1);
-        
-        DEBUG((cout<<"start indel finding with  "<<ascii(end_insertion)<<" extending path "<<extended_path_id<<endl));
-        string tried_extension;
-        breadth_first_queue.emplace(current, string(""));
+
+        const Edge& ins_begin = begin_edges[extended_path_id];
+        const Edge& del_begin = begin_edges[!extended_path_id];
+
+        std::queue<std::pair<Edge,std::string> > breadth_first_queue;
+        breadth_first_queue.emplace(ins_begin, string(""));
+
+        DEBUG((cout<<"start indel finding with  "<<ascii(del_begin.nt)<<" extending path "<<extended_path_id<<endl));
+
+        int ps = -1;
         while(!breadth_first_queue.empty()){
             // TODO maybe we could stop the whole breadth first search in case a bubble was found at a found_del_size and the current insert_size is <= found_del_size-2
             DEBUG((cout<<"queue size  "<<breadth_first_queue.size()<<" max_breadth "<<max_recursion_depth<<endl));
@@ -225,96 +249,104 @@ void BubbleFinder::start_indel_prediction(){
                 clear_queue_pair(breadth_first_queue);
                 break; // This bubble is too complex, we stop.
             }
-            pair<Node,string> element=breadth_first_queue.front();
+            pair<Edge,string> element=breadth_first_queue.front();
             breadth_first_queue.pop();
             DEBUG((cout<<"and now queue size  "<<breadth_first_queue.size()<<endl));
-            current = element.first;
-            tried_extension=element.second;
-            int insert_size = tried_extension.length();
-            DEBUG((cout<<"insert size   "<<insert_size<<endl));
+
+            DEBUG((cout<<"insert size   "<<element.second.length()<<endl));
+
             /** if we already found an indel bubble: we need to check to other possible bubbles of the same size (indels of the same size) */
             /** however, if we reach a node at depth lower than the succesfull bubble, as no other bubbles are stored in the queue with */
             /** a higher length (property of the queue), then we can safelly stop the breadth first search */
-            if (insert_size == found_del_size-1){
-                clear_queue_pair(breadth_first_queue);
-                break; // ...and stop
-            }
-            /** checks if an indel was already found at a lower depth */
-            // TODO: maybe impossible, to check.
-            if (insert_size > found_del_size) {
-                DEBUG(cout << "Skipping insert of size " << insert_size << " due to previous found of size " << found_del_size << endl);
-                continue;
-            }
-            if (end_insertion  == graph.getNT(current, sizeKmer-1)){
-                DEBUG((cout<<"start an INDEL detection  "<<endl));
-                bubble.polymorphism_type="INDEL";//+(insert_size);
-                
-                /** try to close the bubble from the two initial (with one extended) node */
+//             if (element.second.length() < found_del_size){
+//                 clear_queue_pair(breadth_first_queue);
+//                 break; // ...and stop
+//             }
+//             /** checks if an indel was already found at a lower depth */
+//             // TODO: maybe impossible, to check.
+//             if (element.second.length() > found_del_size) {
+//                 (cout << "Skipping insert of size " << element.second.length() << " due to previous found of size " << found_del_size << endl);
+//                 continue;
+//             }
 
 
-                SNP_State state;
-                state.nb_polymorphism = 1;
-                state.sym_branches = 0;
-                state.stack_size = 0;
-                if(extended_path_id == 0) {
-                    state.higher.last_edge.to = current;
-                    state.higher.last_edge.from = Node(~0);
-                    state.higher.last_edge.nt = graph.getNT(current, sizeKmer-1);
-                    state.higher.local_extension_length = tried_extension.length();
-                    path_stack.first = tried_extension;
+//             if (/*element.second.length() <= ps && */element.second.length() > 0) {
+//                 cout << element.second<<endl; //WARNING: DEBUG
+//             }
+//             ps = element.second.length();
 
-                    state.lower.last_edge.to = bubble.begin[1];
-                    state.lower.last_edge.from = Node(~0);
-                    state.lower.last_edge.nt = graph.getNT(bubble.begin[1], sizeKmer-1);
-                    state.lower.local_extension_length = 0;
-                    path_stack.second = "";
+
+
+            bool abort_branch = false;
+            while(true) {
+                if (del_begin.nt  == element.first.nt){
+                    DEBUG((cout<<"start an INDEL detection  "<<endl));
+                    bubble.polymorphism_type="INDEL";//+(insert_size);
+
+                    /** try to close the bubble from the two initial (with one extended) node */
+
+
+                    SNP_State state;
+                    state.nb_polymorphism = 1;
+                    state.sym_branches = 0;
+                    state.stack_size = 0;
+                    if(extended_path_id == 0) {
+                        state.higher.last_edge = element.first;
+                        state.higher.local_extension_length = element.second.length();
+                        swap(path_stack.first, element.second);
+
+                        state.lower.last_edge = del_begin;
+                        state.lower.local_extension_length = 0;
+                        path_stack.second.clear();
+                    } else {
+                        state.higher.last_edge = del_begin;
+                        state.higher.local_extension_length = 0;
+                        path_stack.first.clear();
+
+                        state.lower.last_edge = element.first;
+                        state.lower.local_extension_length = element.second.length();
+                        swap(path_stack.second, element.second);
+                    }
+
+                    if (expand(state)) {
+                        found_del_size=element.second.length();
+                        abort_branch = true;
+//                         cout << "Found bubble !" << endl;
+                        break;
+                    }
+
+                }
+
+                if ( element.second.length() >= found_del_size // no need to try longer extension than the one already found.
+                  || element.second.length() >= max_indel_size      // no need to try longer extension than the maximal length
+                ) {
+                    abort_branch = true;
+                    break;
+                }
+
+
+
+                successors = graph.successorsEdge (element.first.to);
+                if(successors.size() == 1) {
+                    element.first = successors[0];
+                    element.second += ascii(element.first.nt);
                 } else {
-                    state.higher.last_edge.to = bubble.begin[1];
-                    state.higher.last_edge.from = Node(~0);
-                    state.higher.last_edge.nt = graph.getNT(bubble.begin[1], sizeKmer-1);
-                    state.higher.local_extension_length = 0;
-                    path_stack.first = "";
-
-                    state.lower.last_edge.to = current;
-                    state.lower.last_edge.from = Node(~0);
-                    state.lower.last_edge.nt = graph.getNT(current, sizeKmer-1);
-                    state.lower.local_extension_length = tried_extension.length();
-                    path_stack.second = tried_extension;
+                    if (successors.size() == 0) abort_branch = true;
+                    break;
                 }
+            }
 
-                if (expand(state)) {
-                    found_del_size=insert_size;
-                    continue;
+            if(abort_branch) continue;
+
+            if(authorised_branching > 0) {
+                for (size_t successor_id=0; successor_id<successors.size() ; successor_id++) {
+                    breadth_first_queue.emplace(successors[successor_id],
+                                                element.second+ascii(successors[successor_id].nt));
                 }
-
             }
-            
-            if(
-               insert_size >= found_del_size || // no need to try longer extension than the one already found.
-               insert_size >= max_indel_size      // no need to try longer extension than the maximal length
-               ) continue;
-            Graph::Vector<Node> successors = graph.successors (current);
-            
-            /** No branching authorized in the insertion mode. */
-            if (successors.size()>1 && authorised_branching==0) {
-                clear_queue_pair(breadth_first_queue);
-                break; // ...and stop
+            else {
+                break; // Not authorized branching
             }
-
-            /** checks if a successor with the good starting letter (the one potentially closing the indel) exists */
-            bool exists;
-            Node successor = graph.successor(current,end_insertion,exists);
-            if(exists)
-                breadth_first_queue.emplace(successor,tried_extension+ascii(end_insertion));
-            
-            /** then checks for the other possible extensions */
-            for (size_t successor_id=0; successor_id<successors.size() ; successor_id++) {
-                Nucleotide last_extension = graph.getNT(successors[successor_id], sizeKmer-1);
-                if(last_extension != end_insertion)
-                    breadth_first_queue.emplace(successors[successor_id], tried_extension+ascii(last_extension));
-            }
-        
-        
         }
     }
 }
@@ -332,7 +364,7 @@ template<>
 void BubbleFinder::start (Bubble& bubble, const BranchingNode& node)
 {
     this->bubble=bubble;
-    DEBUG ((cout << "[BubbleSNPFinder::start] BRANCHING NODE " << graph.toString(node) << endl));
+    DEBUG((cout << "[BubbleSNPFinder::start] BRANCHING NODE " << graph.toString(node) << endl));
     DEBUG ((cout << "[BubbleSNPFinder::start] bubble.isCanonical " << bubble.isCanonical << endl));
     /** We compute the successors of the node. */
     Graph::Vector<Node> successors = graph.successors((Node&)node);
@@ -425,19 +457,19 @@ bool BubbleFinder::expand_heart( SNP_State state, // NOTE: Here the state is cop
     if(eqNode(next_edge.first.to, next_edge.second.to))
     { return close(state);
     }
-    
+
     /************************************************************/
     /**                   RECURSION CONTINUES                  **/
     /************************************************************/
     else
     {
-        
+
 
         DEBUG((cout<<"continue with nextNode1.value "<<graph.toString(state.higher.last_edge.to)<<" nextNode2.value "<<graph.toString(state.lower.last_edge.to)<<endl));
         /** We call recursively the method (recursion on 'pos'). */
         state.stack_size++;
         return state.extend(next_edge, path_stack) && expand(state);
-        
+
         //            /** There's only one branch to expand if we keep non branching SNPs only, therefore we can safely stop the for loop */
         //            if ( authorised_branching==0 || authorised_branching==1 )   {  break; }
 
@@ -496,7 +528,7 @@ bool BubbleFinder::expand (SNP_State& state) // NOTE: Here we mutate the parent 
     DEBUG((cout<<"successors size "<<successors.size()<<endl));
 
 
-    
+
     bool dumped_bubble=false;
     /** We loop over the successors of the two nodes. */
     size_t i;
@@ -517,7 +549,7 @@ bool BubbleFinder::expand (SNP_State& state) // NOTE: Here we mutate the parent 
         /** B 2 special case: if two or more symmetrical branching close a bubble, the output is redundant. **/
         /** Thus, if successors[i].first = successors[i].second and if the bubble is dumped, we stop **/
         if (successors[i].first.to == successors[i].second.to && dumped_bubble) break;
-        
+
 
         // /** Stop as soon as a bubble is dumped */
         // VERSION 2.2.5: commented this break line. Enable to explore all possible symmetrical paths, even in case of success on one of the paths.
@@ -899,7 +931,8 @@ bool BubbleFinder::checkBranching (SNP_State& state) const
             if (eqNode(pred.first, pred.second)) {
                 if(state.higher.local_extension_length != 0 && state.lower.local_extension_length != 0)
                 {
-                    cout << "Found alternative begin past original begin " << graph.toString(graph.reverse(pred.first)) << " for bubble : " << endl
+                    cout << "Found alternative begin " << graph.toString(graph.reverse(pred.first))
+                         << " past original begin for bubble : " << endl
                          << "\t'" << path_stack.first << "' ("<< graph.toString(state.higher.last_edge.to) <<  ")" << endl
                          << "\t'" << path_stack.second << "' ("<< graph.toString(state.lower.last_edge.to) <<  ")" << endl;
                 }
