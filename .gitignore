@@ -1,1 +1,18 @@
 /build
+__pycache__/
+
+
+# Deny then allow pattern for test files
+/test/*
+!/test/fof.txt
+!/test/reads_sequence1.fasta.gz
+!/test/reads_sequence2.fasta.gz
+!/test/ref_discoRes_k_31_c_auto_D_100_P_1_b_0_coherent.fa
+!/test/ref_discoRes_k_31_c_auto_D_100_P_1_b_0_coherent.vcf
+!/test/reference_genome.fa
+!/test/simple_test.sh
+
+!/test/large_test/ # Allow the directory
+/test/large_test/* # But ignore every files in it, except these two:
+!/test/large_test/large_test.sh
+!/test/large_test/local_large_test.sh
