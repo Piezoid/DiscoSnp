@@ -49,6 +49,9 @@ using namespace std;
  *********************************************************************/
 Kissnp2::Kissnp2 () : Tool ("Kissnp2")
 {
+    using gatb::core::tools::misc::impl::OptionNoParam;
+    using gatb::core::tools::misc::impl::OptionOneParam;
+
     /** We add options known by kissnp2. */
     getParser()->push_front (new OptionNoParam  (STR_DISCOSNP_LOW_COMPLEXITY,       "conserve low complexity SNPs",     false));
     getParser()->push_front (new OptionOneParam (STR_MAX_AMBIGOUS_INDELS,           "Maximal size of ambiguity of INDELs. INDELS whose ambiguity is higher than this value are not output", false, "20"));
@@ -70,8 +73,8 @@ Kissnp2::Kissnp2 () : Tool ("Kissnp2")
     getParser()->push_front (new OptionOneParam (STR_MAX_POLYMORPHISM,              "maximal number of polymorphism per bubble", false, "1"));
     
     
-    getParser()->push_back (new OptionOneParam (BubbleFinder::STR_BFS_MAX_DEPTH,   "maximum depth for BFS",    false,  "200"));
-    getParser()->push_back (new OptionOneParam (BubbleFinder::STR_BFS_MAX_BREADTH, "maximum breadth for BFS",  false,  "20"));
+    getParser()->push_back (new OptionOneParam (STR_BFS_MAX_DEPTH,   "maximum depth for BFS",    false,  "200"));
+    getParser()->push_back (new OptionOneParam (STR_BFS_MAX_BREADTH, "maximum breadth for BFS",  false,  "20"));
     
 }
 
@@ -100,85 +103,108 @@ Kissnp2::Kissnp2 () : Tool ("Kissnp2")
     // Now we can iterate the collection through this iterator.
     for (iter->first(); !iter->isDone(); iter->next())  {  cout << iter->item() << endl;  }
     */
+template <size_t span>
+class MyApp : SpecializedGraphClient<span> {
+public:
+
+    void operator () (Kissnp2& tool) {
+        typename BubbleFinderTemplate<span>::Graph graph = BubbleFinderTemplate<span>::Graph::load (tool.getGraphUri());
+
+        /** We want to get some statistics about the execution. */
+        typename BubbleFinderTemplate<span>::Stats stats;
+
+        /** We create an instance of BubbleFinderTemplate, used as a functor by the dispatcher.
+        * This instance will be cloned N times, one per thread created by the dispatcher.
+        */
+        BubbleFinderTemplate<span> bubbleFinder (tool.getInput(), graph, stats);
+
+        /** THIS IS THE MAIN ITERATION LOOP... We launch the iteration over all the branching nodes of the graph.
+        * Each iterated node is sent in one of N threads where it is provided to the operator() method
+        * of one of the N BubbleFinderTemplate instance. */
+
+        /** We get an iterator over the branching nodes of the graph. */
+        dbg::ProgressGraphIterator<typename BubbleFinderTemplate<span>::BranchingNode, gatb::core::tools::misc::impl::ProgressTimer> it (graph.iteratorBranching(), "nodes");
+
+        /** We get the number of nodes. */
+        u_int64_t nbNodes = it.size();
+
+        /** We loop the nodes. */
+        gatb::core::tools::dp::impl::Dispatcher::Status status = tool.getDispatcher()->iterate (it, bubbleFinder);
+
+        /** We aggregate information for user. */
+        gatb::core::tools::misc::IProperties* info  = tool.getInfo();
+        info->add (1, bubbleFinder.getConfig());
+        info->add (1, "nodes",  "");
+        info->add (2, "nb",   "%lu", nbNodes);
+        info->add (1, "SNP bubbles",  "");
+        info->add (2, "nb",      "%lu", stats.nb_bubbles_snp);
+        info->add (2, "nb_high", "%lu", stats.nb_bubbles_snp_high);
+        info->add (2, "nb_low",  "%lu", stats.nb_bubbles_snp_low);
+        info->add (2, "extensions",  "");
+        info->add (3, "none",       "%d", stats.nb_where_to_extend_snp[0]);
+        info->add (3, "left",       "%d", stats.nb_where_to_extend_snp[1]);
+        info->add (3, "right",      "%d", stats.nb_where_to_extend_snp[2]);
+        info->add (3, "left|right", "%d", stats.nb_where_to_extend_snp[3]);
+        info->add (1, "Indel bubbles",  "");
+        info->add (2, "nb",      "%lu", stats.nb_bubbles_del);
+        info->add (2, "nb_high", "%lu", stats.nb_bubbles_del_high);
+        info->add (2, "nb_low",  "%lu", stats.nb_bubbles_del_low);
+        info->add (2, "extensions",  "");
+        info->add (3, "none",       "%d", stats.nb_where_to_extend_del[0]);
+        info->add (3, "left",       "%d", stats.nb_where_to_extend_del[1]);
+        info->add (3, "right",      "%d", stats.nb_where_to_extend_del[2]);
+        info->add (3, "left|right", "%d", stats.nb_where_to_extend_del[3]);
+        info->add (1, "time", "");
+        info->add (2, "find", "%d", status.time);
+    }
+};
+
+
+size_t Kissnp2::getKmerSize() const {
+    using namespace gatb::core::tools::storage::impl;
+    Storage* sto = StorageFactory(STORAGE_HDF5).create (graph_uri, false, false);
+    string kmerSize_property = sto->getGroup("").getProperty ("kmer_size");
+    delete sto;
+
+    if (kmerSize_property.size() == 0) {
+        cerr << "Unable to reak kmer size of graph '" << graph_uri << "'" << endl;
+        exit(1);
+    }
+
+    return stoul(kmerSize_property);
+}
+
 void Kissnp2::execute ()
 {
-    Dispatcher::Status status;
-    u_int64_t nbNodes = 0;
-    
-    /** We load the graph from the provided uri. */
-    Graph graph = Graph::load (getInput()->getStr(STR_URI_INPUT));
-    
-    istringstream iss(graph.getInfo().getStr("thresholds"));
+    graph_uri = getInput()->getStr(STR_URI_INPUT);
+    gatb::core::tools::math::Integer::apply<MyApp, Kissnp2&>(getKmerSize(), *this);
+//     cout <<  << endl;
+    exit(0);
 
-    /** We store in a _removemeplease.txt file the used coverages */
-    // We create a Storage product "_removemeplease.h5" in HDF5 format
-    Storage* storage = StorageFactory(STORAGE_HDF5).create (getInput()->getStr(STR_KISSNP2_COVERAGE_FILE_NAME), true, false);
-    LOCAL (storage);
-    Group& root = storage->root();
-    Collection<NativeInt64>& myIntegers = root.getCollection<NativeInt64> ("cutoffs");
-    
-    int n;
-    if (getInput()->get    (STR_KISSNP2_DONT_OUTPUT_FIRST_COV) != 0)
-        iss >> n; //Don't output the first coverage value
-    
-    while (iss >> n)
-        myIntegers.insert (n);
-    
-    myIntegers.flush();
-    
-    
-    
 
     
+//     istringstream iss(graph.getInfo().getStr("thresholds"));
+//
+//     /** We store in a _removemeplease.txt file the used coverages */
+//     // We create a Storage product "_removemeplease.h5" in HDF5 format
+//     Storage* storage = StorageFactory(STORAGE_HDF5).create (getInput()->getStr(STR_KISSNP2_COVERAGE_FILE_NAME), true, false);
+//     LOCAL (storage);
+//     Group& root = storage->root();
+//     Collection<NativeInt64>& myIntegers = root.getCollection<NativeInt64> ("cutoffs");
+//
+//     int n;
+//     if (getInput()->get    (STR_KISSNP2_DONT_OUTPUT_FIRST_COV) != 0)
+//         iss >> n; //Don't output the first coverage value
+//
+//     while (iss >> n)
+//         myIntegers.insert (n);
+//
+//     myIntegers.flush();
+//
     
-    /** We want to get some statistics about the execution. */
-    BubbleFinder::Stats stats;
-    
-    /** We create an instance of BubbleFinder, used as a functor by the dispatcher.
-     * This instance will be cloned N times, one per thread created by the dispatcher.
-     */
-    BubbleFinder bubbleFinder (getInput(), graph, stats);
-    
-    /** THIS IS THE MAIN ITERATION LOOP... We launch the iteration over all the branching nodes of the graph.
-     * Each iterated node is sent in one of N threads where it is provided to the operator() method
-     * of one of the N BubbleFinder instance. */
-    
-    /** We get an iterator over the branching nodes of the graph. */
-    ProgressGraphIterator<BranchingNode,ProgressTimer> it (graph.iteratorBranching(), "nodes");
-    
-    /** We get the number of nodes. */
-    nbNodes = it.size();
-    
-    /** We loop the nodes. */
-    status = getDispatcher()->iterate (it, bubbleFinder);
     
 
     
-    
-    
-    /** We aggregate information for user. */
-    getInfo()->add (1, bubbleFinder.getConfig());
-    getInfo()->add (1, "nodes",  "");
-    getInfo()->add (2, "nb",   "%lu", nbNodes);
-    getInfo()->add (1, "SNP bubbles",  "");
-    getInfo()->add (2, "nb",      "%lu", stats.nb_bubbles_snp);
-    getInfo()->add (2, "nb_high", "%lu", stats.nb_bubbles_snp_high);
-    getInfo()->add (2, "nb_low",  "%lu", stats.nb_bubbles_snp_low);
-    getInfo()->add (2, "extensions",  "");
-    getInfo()->add (3, "none",       "%d", stats.nb_where_to_extend_snp[0]);
-    getInfo()->add (3, "left",       "%d", stats.nb_where_to_extend_snp[1]);
-    getInfo()->add (3, "right",      "%d", stats.nb_where_to_extend_snp[2]);
-    getInfo()->add (3, "left|right", "%d", stats.nb_where_to_extend_snp[3]);
-    getInfo()->add (1, "Indel bubbles",  "");
-    getInfo()->add (2, "nb",      "%lu", stats.nb_bubbles_del);
-    getInfo()->add (2, "nb_high", "%lu", stats.nb_bubbles_del_high);
-    getInfo()->add (2, "nb_low",  "%lu", stats.nb_bubbles_del_low);
-    getInfo()->add (2, "extensions",  "");
-    getInfo()->add (3, "none",       "%d", stats.nb_where_to_extend_del[0]);
-    getInfo()->add (3, "left",       "%d", stats.nb_where_to_extend_del[1]);
-    getInfo()->add (3, "right",      "%d", stats.nb_where_to_extend_del[2]);
-    getInfo()->add (3, "left|right", "%d", stats.nb_where_to_extend_del[3]);
-    getInfo()->add (1, "time", "");
-    getInfo()->add (2, "find", "%d", status.time);
+
 }
 

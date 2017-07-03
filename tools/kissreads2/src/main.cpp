@@ -25,13 +25,13 @@
 
 
 
-using namespace gatb::core;
-using namespace gatb::core::tools;
-using namespace gatb::core::bank;
-using namespace gatb::core::kmer::impl;
-
-using namespace gatb::core::system;
-using namespace gatb::core::system::impl;
+// using namespace gatb::core;
+// using namespace gatb::core::tools;
+// using namespace gatb::core::bank;
+// using namespace gatb::core::kmer::impl;
+//
+// using namespace gatb::core::system;
+// using namespace gatb::core::system::impl;
 
 /********************************************************************************/
 
@@ -55,12 +55,12 @@ int main (int argc, char* argv[])
         Kissreads2().run (argc, argv);
     }
     
-    catch (OptionFailure& e)
+    catch (gatb::core::tools::misc::impl::OptionFailure& e)
     {
         return e.displayErrors (cout);
     }
     
-    catch (Exception& e)
+    catch (gatb::core::system::Exception& e)
     {
         cerr << "EXCEPTION: " << e.getMessage() << endl;
         return EXIT_FAILURE;

@@ -22,7 +22,19 @@
 #define _TOOL_KISSNP2_HPP_
 
 /********************************************************************************/
-#include <gatb/gatb_core.hpp>
+// #include <gatb/gatb_core.hpp>
+#include <gatb/tools/misc/impl/Tool.hpp>
+#include <string>
+
+
+// using namespace gatb::core::tools::misc::impl;
+// using namespace gatb::core::tools::misc;
+
+
+using namespace std;
+
+
+
 /********************************************************************************/
 
 /** \brief Tool class that looks for SNP
@@ -30,7 +42,7 @@
  * The Kissnp2 is the front class for SNP detection in a provided de Bruijn graph.
  * The output is a bank with pairs of sequences defining a bubble.
  */
-class Kissnp2 : public Tool
+class Kissnp2 : public gatb::core::tools::misc::impl::Tool
 {
 public:
 
@@ -39,6 +51,12 @@ public:
     
     /** Implementation of Tool::execute method. */
     void execute ();
+
+    size_t getKmerSize() const;
+
+    const string& getGraphUri() const { return graph_uri; }
+private:
+    string graph_uri;
 };
 
 /********************************************************************************/

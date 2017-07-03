@@ -20,9 +20,13 @@
 
 /********************************************************************************/
 
+#include <gatb/tools/misc/impl/OptionsParser.hpp>
+#include <gatb/system/api/Exception.hpp>
+
 #include <Kissnp2.hpp>
 
-using namespace std;
+// using namespace std;
+// using namespace gatb::core::system;
 
 /********************************************************************************/
 
@@ -35,12 +39,12 @@ int main (int argc, char* argv[])
         Kissnp2().run (argc, argv);
     }
 
-    catch (OptionFailure& e)
+    catch (gatb::core::tools::misc::impl::OptionFailure& e)
     {
         return e.displayErrors (cout);
     }
 
-    catch (Exception& e)
+    catch (gatb::core::system::Exception& e)
     {
         cerr << "EXCEPTION: " << e.getMessage() << endl;
         return EXIT_FAILURE;
