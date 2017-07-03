@@ -2,6 +2,10 @@ project(DiscoSNP++)
 
 cmake_minimum_required(VERSION 2.6)
 
+IF (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    SET (debug 1)
+ENDIF()
+
 ################################################################################
 # The version number.
 ################################################################################
