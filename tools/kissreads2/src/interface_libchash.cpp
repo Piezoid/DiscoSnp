@@ -96,7 +96,7 @@ void hash_clear(hash_t map, void (*specific_free)(const void *)){
 	 hash_iter iterator=hash_iterator_init(map);
 
 	 /*	 is the hash table empty?  */
-	 if (iterator < 0)
+     if (!iterator)
 		 return;
 
 	char *key;
@@ -130,7 +130,7 @@ void hash_clear(hash_t map, void (*specific_free)(const void *)){
 	 hash_iter iterator=hash_iterator_init(map);
 
 	 /*	 is the hash table empty?  */
-	 if (iterator < 0)
+     if (!iterator)
 		 return 0;
 
 	char *key;
@@ -206,10 +206,10 @@ void hash_clear(hash_t map, void (*specific_free)(const void *)){
 
   ssize_t hash_iterator_return_entry(hash_t map, hash_iter iter,
  		char **key, void **data){
- 	assert(map != NULL);
- 	assert(iter >= 0);
- 	assert(key != NULL);
- 	assert(data != NULL);
+    assert(map);
+    assert(iter);
+    assert(key);
+    assert(data);
  	//if ((int)iter != -1 && !hash_iterator_is_end(map, iter))
 	if (iter != NULL && iter != (hash_iter)-1 &&!hash_iterator_is_end(map, iter))
  	{
